@@ -10,6 +10,8 @@ control channel. No separate engine or server is started.
 | `solidcraft.execute(command, params?)` | Run an engine command without opening its interactive dialog |
 | `solidcraft.commands()` | Discover commands, their parameters and current enablement |
 | `solidcraft.inspect(params?)` | Inspect the active document, optionally with `{measure: true}` |
+| `solidcraft.readFile(path)` | The bytes of a file in the browser's virtual file system, as a `Uint8Array` |
+| `solidcraft.writeFile(path, bytes)` | Put a `Uint8Array`, which may come from another window, into the browser's virtual file system at `path` |
 | `solidcraft.buttons()` | The mouse buttons the app holds now, as a pointer event's `buttons` bitmask (1 primary, 2 secondary, 4 middle); returns at once, not a promise |
 
 Every call but `buttons()` returns a promise. It resolves to the control reply's `result`, or rejects with an
@@ -30,6 +32,19 @@ await solidcraft.inspect({measure: true});
 await solidcraft.execute("edit.undo");
 await solidcraft.execute("edit.redo");
 await solidcraft.request("ui.inspect");
+```
+
+A page that embeds the app passes files in and out with `readFile` and `writeFile`: write a
+file, open it with `doc.open` or `file.insert_step`, and read back what `file.save` or
+`file.export` wrote to a path. Both take memory paths only, such as `/host/part.step`. Paths
+under `/opfs/`, `/disk/` and `/downloads/` are refused, because the app stores or downloads only
+what its commands write there. Memory files last until the page reloads.
+
+```js
+await solidcraft.writeFile("/host/part.step", new Uint8Array(await response.arrayBuffer()));
+await solidcraft.execute("doc.open", {path: "/host/part.step"});
+await solidcraft.execute("file.export", {path: "/host/part-edited.step"});
+const bytes = await solidcraft.readFile("/host/part-edited.step");
 ```
 
 An agent with JavaScript evaluation access to this tab can make the same calls. The API does
@@ -56,6 +71,51 @@ await app.request("document.import", {text: kept.text, name: "Bracket"});
 
 The 16 MiB limit on parameters applies to `document.import`'s `text`. A design that links other
 design files keeps those links as paths; the files themselves are not in `text`.
+
+## Upstream source and remaining differences
+
+This fork integrates upstream [v0.42.0](https://github.com/tangency-labs/solidcraft/releases/tag/v0.42.0),
+commit [`1b1e940cc48e4d1d5d01971a4be20e2e55647066`](https://github.com/tangency-labs/solidcraft/commit/1b1e940cc48e4d1d5d01971a4be20e2e55647066).
+Upstream supplies `?embed=editor` and `document.export`, `document.import` and `document.saved`.
+Those [document handlers](https://github.com/tangency-labs/solidcraft/blob/v0.42.0/crates/ui-egui/src/documents.rs)
+exchange native design JSON; they do not transfer the bytes of STEP imports or exports.
+
+The remaining fork change is the `readFile` and `writeFile` bridge in
+[`apps/solidcraft-web/src/api.rs`](../apps/solidcraft-web/src/api.rs), with its documentation
+here and browser coverage in [`xtask/src/web_offline_test.rs`](../xtask/src/web_offline_test.rs).
+Upstream's [browser API](https://github.com/tangency-labs/solidcraft/blob/v0.42.0/apps/solidcraft-web/src/api.rs)
+does not expose that bridge. Remove it when a supported upstream API transfers exchange-format
+file bytes, embedding hosts use that API, and the browser test demonstrates exported bytes,
+arrays from another window, reopening the transferred file and rejection of invalid requests.
+
+### Native design compatibility
+
+At this revision, newly saved native designs use `solidcraft/57`: the
+[format generator](../crates/format/src/build.rs) includes folded formats through `v56` and
+two pending changes, and [`Formats::current`](../crates/format/src/lib.rs) advances the number
+when pending changes exist. `document.export`'s outer `format: "json"` describes the encoding;
+the design's own format number is inside `text`.
+
+The previous `host-files-2` revision, `9d55e7894d6862e45d9fef99db001ef0107c4404`, writes
+`solidcraft/48` and rejects higher format numbers. Keep the original native files when
+qualifying an upgrade: restoring that executable alone cannot reopen a design saved in format
+57. The newer-file preservation code in v0.42.0 does not change the older reader. These are
+source compatibility constraints; runtime round trips and rollback still require qualification
+with the browser build and representative design files.
+
+### Qualification of the v0.42.0 integration
+
+With Rust 1.99.1, `cargo xtask ci` passes formatting, source checks, Clippy,
+the WebAssembly checks for 30 crates and doc tests. The native suite reports
+19 failures across six test binaries. Fifteen are already recorded in
+[`tests/KNOWN_FAILING_TESTS`](../tests/KNOWN_FAILING_TESTS). Two agent discovery
+tests fail because their runtime fixtures cannot find `cat` on NixOS, including
+one that invokes `/bin/cat` directly. A display-quality test unexpectedly leaves
+a dialog open, and a render-cache test reports a different retained byte count.
+The native sources are unchanged from v0.42.0; those four failures still need
+comparison with an independently built upstream target. The assertions and
+known-failure list are unchanged. The updated browser bundle and the native
+and STEP round trips remain unqualified.
 
 ## Verify a browser build
 
