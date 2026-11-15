@@ -100,9 +100,10 @@ the design's own format number is inside `text`.
 The previous `host-files-2` revision, `9d55e7894d6862e45d9fef99db001ef0107c4404`, writes
 `solidcraft/48` and rejects higher format numbers. Keep the original native files when
 qualifying an upgrade: restoring that executable alone cannot reopen a design saved in format
-57. The newer-file preservation code in v0.42.0 does not change the older reader. These are
-source compatibility constraints; runtime round trips and rollback still require qualification
-with the browser build and representative design files.
+57. The newer-file preservation code in v0.42.0 does not change the older reader.
+A browser check confirms that `host-files-2` rejects a format-57 native file and
+preserves its open design. STEP exchange passes in both directions for the
+synthetic box described below.
 
 ### Qualification on the selected main revision
 
@@ -119,8 +120,22 @@ reports the same 17 failures. A third agent-discovery test, which expected a
 synthetic executable's version and received none, failed only in the fork run;
 its cause remains unresolved. Tests and the known-failure list are unchanged.
 
-These are native and compile checks. The browser bundle still requires the
-runtime checks below, including native and STEP round trips in the editing embed.
+The release browser package builds, and `cargo xtask web-offline-test` passes.
+The real-app `cargo xtask web-api-test --site dist/web` fails in all three runs
+at `xtask/src/web_offline_test.rs:194`: moving focus to the hidden text input
+leaves no button held, although the test expects the middle button. The mouse
+handler and this assertion are unchanged from the selected upstream source.
+An independent upstream browser build has not been tested, and the full browser
+gate remains red. No assertion was changed or skipped.
+
+Separate checks in `?embed=editor` pass native SC and STEP round trips through
+the host byte bridge. A 20 by 10 by 5 mm box retains its volume of 1,000 cubic
+millimetres, surface area of 700 square millimetres, bounds and native feature
+timeline. The current reader opens the published bundle's native file, and
+STEP files pass in both directions. A stale save acknowledgement is rejected;
+an invalid import preserves the open design. Missing files, reserved storage
+paths and invalid byte arguments are rejected. These synthetic checks do not
+qualify authenticated storage or permissions in a consuming application.
 
 ### Historical qualification of the v0.42.0 integration
 
