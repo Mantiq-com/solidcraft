@@ -242,8 +242,11 @@ pub fn release_stale_input(ctx: &egui::Context, raw: &mut egui::RawInput) {
 /// may never arrive, and egui would keep the button down and ignore canvas picks (#16460). A
 /// regained focus also clears the modifiers; the OS reports the real ones after.
 fn recover_after_focus(ctx: &egui::Context, raw: &mut egui::RawInput) {
-    let last_lost = raw.events.iter().rposition(|e| matches!(e, egui::Event::WindowFocused(false)));
-    let regained = raw.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(true)));
+    // Web focus also moves between page elements; the browser's pointer tracker handles
+    // actual window focus loss without releasing a drag when a text input takes focus.
+    let window_focus = !cfg!(target_arch = "wasm32");
+    let last_lost = raw.events.iter().rposition(|e| window_focus && matches!(e, egui::Event::WindowFocused(false)));
+    let regained = raw.events.iter().any(|e| window_focus && matches!(e, egui::Event::WindowFocused(true)));
     let marked = ctx.data(|d| d.get_temp::<bool>(stale_input_id())).unwrap_or(false);
     // Focus ends the frame lost: recover when it is back. Otherwise recover now: at the loss when
     // the batch also regains focus (later events, a fresh press among them, stay as they are), or
