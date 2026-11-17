@@ -75,66 +75,110 @@ design files keeps those links as paths; the files themselves are not in `text`.
 ## Upstream source and remaining differences
 
 This fork integrates upstream `main` at commit
-[`7e0c36cf83e44a913dd7e5d3dba295bb78d52de6`](https://github.com/tangency-labs/solidcraft/commit/7e0c36cf83e44a913dd7e5d3dba295bb78d52de6),
-after [v0.42.0](https://github.com/tangency-labs/solidcraft/releases/tag/v0.42.0).
+[`df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7`](https://github.com/tangency-labs/solidcraft/commit/df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7),
+retrieved on 2026-11-17. This preserves the fork's policy of tracking upstream commits.
+The latest stable release on that date is
+[v0.43.0](https://github.com/tangency-labs/solidcraft/releases/tag/v0.43.0), commit
+`8ba46e9e2181396a9b5903b98031399aef61cf26`; the selected main commit includes later,
+unreleased changes.
 Upstream supplies `?embed=editor` and `document.export`, `document.import` and `document.saved`.
-Those [document handlers](https://github.com/tangency-labs/solidcraft/blob/7e0c36cf83e44a913dd7e5d3dba295bb78d52de6/crates/ui-egui/src/documents.rs)
+Those [document handlers](https://github.com/tangency-labs/solidcraft/blob/df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7/crates/ui-egui/src/documents.rs)
 exchange native design JSON; they do not transfer the bytes of STEP imports or exports.
 
-The remaining fork change is the `readFile` and `writeFile` bridge in
-[`apps/solidcraft-web/src/api.rs`](../apps/solidcraft-web/src/api.rs), with its documentation
-here and browser coverage in [`xtask/src/web_offline_test.rs`](../xtask/src/web_offline_test.rs).
-Upstream's [browser API](https://github.com/tangency-labs/solidcraft/blob/7e0c36cf83e44a913dd7e5d3dba295bb78d52de6/apps/solidcraft-web/src/api.rs)
-does not expose that bridge. Remove it when a supported upstream API transfers exchange-format
+| Fork difference | Required behavior | Selected upstream evidence | Action |
+|---|---|---|---|
+| [`apps/solidcraft-web/src/api.rs`](../apps/solidcraft-web/src/api.rs) | Transfer native and exchange-format bytes through memory paths, including arrays from an embedding window | Upstream exports command methods but no byte-transfer methods | Keep `readFile` and `writeFile` unchanged |
+| [`xtask/src/web_offline_test.rs`](../xtask/src/web_offline_test.rs) | Check STEP transfer, reopening and invalid requests in the real browser app | Upstream covers native JSON exchange without the host byte bridge | Keep the existing tests unchanged |
+| This document | Record the API contract, selected source and qualification limits | Upstream does not document the fork's byte bridge | Keep and update the evidence |
+
+Upstream's [browser API](https://github.com/tangency-labs/solidcraft/blob/df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7/apps/solidcraft-web/src/api.rs)
+does not expose the byte bridge. Remove it when a supported upstream API transfers exchange-format
 file bytes, embedding hosts use that API, and the browser test demonstrates exported bytes,
 arrays from another window, reopening the transferred file and rejection of invalid requests.
 
 ### Native design compatibility
 
-At this revision, newly saved native designs use `solidcraft/57`: the
-[format generator](https://github.com/tangency-labs/solidcraft/blob/7e0c36cf83e44a913dd7e5d3dba295bb78d52de6/crates/format/src/build.rs) includes folded formats through `v56` and
-five pending changes, and [`Formats::current`](https://github.com/tangency-labs/solidcraft/blob/7e0c36cf83e44a913dd7e5d3dba295bb78d52de6/crates/format/src/lib.rs) advances the number
-when pending changes exist. `document.export`'s outer `format: "json"` describes the encoding;
+At this revision, newly saved native designs use `solidcraft/58`: the
+[format generator](https://github.com/tangency-labs/solidcraft/blob/df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7/crates/format/src/build.rs)
+includes folded formats through `v58` and no pending changes.
+[`Formats::current`](https://github.com/tangency-labs/solidcraft/blob/df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7/crates/format/src/lib.rs)
+therefore returns 58. `document.export`'s outer `format: "json"` describes the encoding;
 the design's own format number is inside `text`.
 
 The previous `host-files-2` revision, `9d55e7894d6862e45d9fef99db001ef0107c4404`, writes
 `solidcraft/48` and rejects higher format numbers. Keep the original native files when
 qualifying an upgrade: restoring that executable alone cannot reopen a design saved in format
-57. The newer-file preservation code in v0.42.0 does not change the older reader.
-A browser check confirms that `host-files-2` rejects a format-57 native file and
-preserves its open design. STEP exchange passes in both directions for the
+58. The newer-file preservation code in v0.42.0 does not change the older reader.
+The preceding fork revision, `fcb6a416839419c3673514a2b69ba40a4303d0e1`, writes format 57
+and can open newer files with preservation warnings; that behavior does not qualify every
+format-58 feature for rollback.
+
+### Qualification of the selected main revision
+
+On 2026-11-17, with Rust 1.99.1, `cargo xtask ci` passed formatting, source checks,
+all 16 isolated shared-crate checks, Clippy, the WebAssembly checks for 30 crates
+and doc tests. Its 112 native test binaries completed with 16 distinct failures
+across six binaries. Thirteen failures are recorded in the selected source's
+[`tests/KNOWN_FAILING_TESTS`](https://github.com/tangency-labs/solidcraft/blob/df1537606dcb477d89f9e5ae95b2be9c9e3cb6f7/tests/KNOWN_FAILING_TESTS).
+
+Two agent-discovery fixtures failed because they restrict `PATH` to `/usr/bin:/bin`
+or invoke `/bin/cat` directly. Neither location supplies `cat` on the NixOS test
+host. Their failing calls are in `crates/ui-egui/src/agent_chat/discover.rs` at
+lines 1007 and 602. Both unchanged tests pass when their existing test binary runs
+inside a temporary Nix `buildFHSEnv` with Bash and coreutils. That check isolates
+the missing filesystem paths; it is not another full-suite result.
+The render-memory assertion at
+`crates/engine/src/cmd/render/job_tests.rs:3329` expected 4,678 admitted bytes and
+observed 228,935,237. The native failure stops `cargo xtask ci` before its browser
+offline stage. No test assertion, input, fixture or selection was changed.
+
+In a clean checkout of the selected upstream commit, `cargo xtask test` also
+exited with status 1. It ran all 112 native test binaries and doc tests inside
+the same temporary Nix environment, with two concurrent commands and eight
+test threads per binary. Its 14 distinct failures across five binaries match
+the fork's remaining failures exactly: the 13 recorded failures and the same
+render-memory assertion, including both byte counts. The full UI library
+passed 5,844 tests, with its 22 ignored tests unchanged.
+
+The selected revision's browser package and runtime have not yet been qualified.
+
+### Historical qualification of the previous main revision
+
+The previous integration selected upstream
+[`7e0c36cf83e44a913dd7e5d3dba295bb78d52de6`](https://github.com/tangency-labs/solidcraft/commit/7e0c36cf83e44a913dd7e5d3dba295bb78d52de6),
+after v0.42.0, and wrote native format 57. Its results below do not qualify the current source.
+A browser check confirmed that `host-files-2` rejected a format-57 native file and
+preserved its open design. STEP exchange passed in both directions for the
 synthetic box described below.
 
-### Qualification on the selected main revision
-
-With Rust 1.99.1, `cargo xtask ci` passes formatting, source and shared-crate
+With Rust 1.99.1, `cargo xtask ci` passed formatting, source and shared-crate
 checks, Clippy, the WebAssembly checks for 30 crates and doc tests. Its native
-suite reports 18 distinct failures across six binaries. Thirteen are in the
+suite reported 18 distinct failures across six binaries. Thirteen were in the
 selected revision's `tests/KNOWN_FAILING_TESTS`.
 
-Four additional failures also occur when `cargo xtask test` runs the unmodified
+Four additional failures also occurred when `cargo xtask test` ran the unmodified
 upstream revision: two agent-discovery fixtures cannot find `cat` (one uses
 `/bin/cat`), a display-quality test leaves an unexpected dialog open, and a
 render-cache test reports retained bytes above its expected count. That baseline
-reports the same 17 failures. A third agent-discovery test, which expected a
+reported the same 17 failures. A third agent-discovery test, which expected a
 synthetic executable's version and received none, failed only in the fork run;
 its cause remains unresolved. Tests and the known-failure list are unchanged.
 
-The release browser package builds, and `cargo xtask web-offline-test` passes.
-The real-app `cargo xtask web-api-test --site dist/web` fails in all three runs
+The release browser package built, and `cargo xtask web-offline-test` passed.
+The real-app `cargo xtask web-api-test --site dist/web` failed in all three runs
 at `xtask/src/web_offline_test.rs:194`: moving focus to the hidden text input
 leaves no button held, although the test expects the middle button. The mouse
 handler and this assertion are unchanged from the selected upstream source.
-An independent upstream browser build has not been tested, and the full browser
-gate remains red. No assertion was changed or skipped.
+An independent upstream browser build was not tested, and the full browser
+gate remained red. No assertion was changed or skipped.
 
-Separate checks in `?embed=editor` pass native SC and STEP round trips through
-the host byte bridge. A 20 by 10 by 5 mm box retains its volume of 1,000 cubic
+Separate checks in `?embed=editor` passed native SC and STEP round trips through
+the host byte bridge. A 20 by 10 by 5 mm box retained its volume of 1,000 cubic
 millimetres, surface area of 700 square millimetres, bounds and native feature
-timeline. The current reader opens the published bundle's native file, and
-STEP files pass in both directions. A stale save acknowledgement is rejected;
-an invalid import preserves the open design. Missing files, reserved storage
-paths and invalid byte arguments are rejected. These synthetic checks do not
+timeline. That reader opened the published bundle's native file, and
+STEP files passed in both directions. A stale save acknowledgement was rejected;
+an invalid import preserved the open design. Missing files, reserved storage
+paths and invalid byte arguments were rejected. These synthetic checks do not
 qualify authenticated storage or permissions in a consuming application.
 
 ### Historical qualification of the v0.42.0 integration

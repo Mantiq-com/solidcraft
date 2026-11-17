@@ -49,6 +49,13 @@ pub static COMMANDS: &[CommandSpec] = &[
         .contract(&TOGGLE_VISIBILITY_CONTRACT)
         .output(crate::schema::output_schema_for::<crate::schema::edit::ToggleVisibilityResult>)
         .params("Show or hide what is selected in the app. Headless calls are refused without changing the design; browser.visibility takes explicit items"),
+    CommandSpec::new("ui.dialog_ok", "Dialog OK", crate::checked!("ui.dialog_ok", dialog_ok))
+        .icon("finish")
+        .noundo()
+        .doc_only()
+        .contract(&DIALOG_OK_CONTRACT)
+        .output(crate::schema::output_schema_for::<crate::schema::edit::DialogOkResult>)
+        .params("Runs OK in the feature dialog open in the app, as Enter does; bind it to a key in Preferences. Only the app has a dialog: called here it is refused, and changes nothing"),
     CommandSpec::new("edit.undo", "Undo", crate::checked!("edit.undo", undo))
         .icon("undo")
         .key("Ctrl+Z")
@@ -300,6 +307,16 @@ fn toggle_visibility(_s: &mut Session, _p: &Value) -> Result<Value> {
     Err(EngineError::Other("ui.toggle_visibility acts on the app's selection; use browser.visibility in a headless session".into()))
 }
 
+const DIALOG_OK_CONTRACT: crate::schema::TypedContract<crate::schema::edit::DialogOkParams> = crate::schema::TypedContract::new();
+
+/// Dialog OK (#17416) confirms the app's open dialog, which only the app has: it does so in
+/// `SolveApp::start` and never reaches this.
+fn dialog_ok(_s: &mut Session, _p: &Value) -> Result<Value> {
+    Err(EngineError::Other(
+        "ui.dialog_ok runs OK in the dialog open in the app; a headless session has no dialog: run the dialog's command itself".into(),
+    ))
+}
+
 const REPEAT_CONTRACT: crate::schema::TypedContract<crate::schema::edit::RepeatParams> = crate::schema::TypedContract::new();
 
 /// Repeat Last Command (#7077) starts a tool, which only the app has: it starts the last one in
@@ -429,8 +446,10 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
 fn rename(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "timeline.rename";
     let id = feature_id(s, p.get("feature"), cmd)?;
-    let name =
-        str_(p, "name").map(str::trim).filter(|n| !n.is_empty() && n.len() <= 128).ok_or_else(|| bad(cmd, "`name` must be 1…128 characters"))?;
+    let name = str_(p, "name")
+        .map(str::trim)
+        .filter(|n| !n.is_empty() && n.chars().count() <= 128)
+        .ok_or_else(|| bad(cmd, "`name` must be 1…128 characters"))?;
     let old = s.doc.feature(id).map(|f| f.name.clone()).ok_or_else(|| bad(cmd, "feature"))?;
     if s.doc.features.iter().any(|f| f.name == name && f.id != id) {
         return Err(bad(cmd, format!("another feature is called `{name}`")));
@@ -635,11 +654,8 @@ fn folders_with(
 /// A new folder named `name` holding `features` and `joints`, inside the folder `parent` (`None`:
 /// at the history's root), as `timeline.group` makes it. Returns its id.
 pub(crate) fn new_folder(s: &mut Session, name: &str, features: Vec<u64>, joints: Vec<u64>, parent: Option<u64>, cmd: &str) -> Result<u64> {
-    // Folder names are 1…128 bytes, as `timeline.rename_group` takes them.
-    let mut name = name.trim().to_string();
-    while name.len() > 128 {
-        name.pop();
-    }
+    // Folder names are 1…128 characters, as `timeline.rename_group` takes them.
+    let name: String = name.trim().chars().take(128).collect();
     let name = if name.is_empty() { format!("Folder{}", s.doc.timeline_groups.len() + 1) } else { name };
     let id = s.doc_mut().allocate_id()?;
     let (folders, broken) = folders_with(&s.doc, solidcraft_doc::TimelineGroup { id, name, parent, features, joints }, &[]);
@@ -763,7 +779,7 @@ fn rename_group(s: &mut Session, p: &Value) -> Result<Value> {
     let id = timeline_group_id(s, p, cmd)?;
     let name = str_(p, "name")
         .map(str::trim)
-        .filter(|name| !name.is_empty() && name.len() <= 128)
+        .filter(|name| !name.is_empty() && name.chars().count() <= 128)
         .ok_or_else(|| bad(cmd, "`name` must be 1…128 characters"))?;
     if let Some(group) = s.doc_mut().timeline_groups.iter_mut().find(|group| group.id == id) {
         group.name = name.to_string();
@@ -1517,6 +1533,9 @@ fn edit_feature(s: &mut Session, p: &Value) -> Result<Value> {
         let before = s.model.state_before(id);
         super::component::pin_picked_placements_in(s, &mut nf.kind, nf.component, &before);
     }
+    if !sets_path(set, "extent.from_level") {
+        keep_from_level_on_the_same_face(s, &f, &mut nf);
+    }
     if let Some(slot) = s.doc_mut().feature_mut(id) {
         *slot = nf;
     }
@@ -2096,6 +2115,21 @@ fn input_keys(kind: &FeatureKind) -> Vec<(String, solidcraft_doc::expr::Kind)> {
     keys
 }
 
+/// An old design's From Object keeps starting at the face's level (`from_level`) through an edit
+/// that keeps its From face: the same pick, or a pick of a face on the same plane, found as the
+/// build finds it in the model before the feature. A From picked on another plane is a new
+/// choice, so it starts on that face, as a new extrude does. `after`'s face names and picked
+/// placements must already be its own.
+fn keep_from_level_on_the_same_face(s: &Session, before: &Feature, after: &mut Feature) {
+    let FeatureKind::Extrude { extent: was, .. } = &before.kind else {
+        return;
+    };
+    let keep = was.from_level && solidcraft_doc::same_extrude_from_face(&s.doc, &s.model.state_before(before.id), before, after);
+    if let FeatureKind::Extrude { extent, .. } = &mut after.kind {
+        extent.from_level = keep;
+    }
+}
+
 fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "timeline.redefine";
     let id = feature_id(s, p.get("feature"), cmd)?;
@@ -2193,7 +2227,20 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
     {
         parameters.entry("names").or_insert_with(|| json!(names));
     }
+    // A hole's and a primitive's `targets` are the bodies it takes part in: an edit that names
+    // them changes them (#17623), rather than the old participants overriding them.
+    let targets_are_participants = matches!(
+        old.kind,
+        FeatureKind::Hole { .. }
+            | FeatureKind::Box { .. }
+            | FeatureKind::Cylinder { .. }
+            | FeatureKind::Sphere { .. }
+            | FeatureKind::Torus { .. }
+            | FeatureKind::Cone { .. }
+    ) && params.get("participants").is_none()
+        && params.get("targets").and_then(Value::as_array).is_some_and(|t| !t.is_empty());
     if !old.participants.is_empty()
+        && !targets_are_participants
         && let Some(parameters) = params.as_object_mut()
     {
         parameters.entry("participants").or_insert_with(|| json!(old.participants));
@@ -2230,7 +2277,12 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(parameters) = params.as_object_mut() {
         parameters.remove("name");
     }
-    let r = spec.run_nested(&mut trial, &params)?;
+    let r = {
+        // Offset Plane has no parameter mapping in `frames::map_local`: its constructor maps
+        // the complete definition, or captures a face directly in the authoring frame.
+        let _world = (spec.id == "construct.plane.offset").then(crate::frames::world_geometry);
+        spec.run_nested(&mut trial, &params)
+    }?;
     let made = r.get("feature").and_then(Value::as_u64).ok_or_else(|| bad(cmd, format!("`{cid}` did not make a feature")))?;
     let mut new = trial.doc.feature(made).cloned().ok_or_else(|| bad(cmd, format!("`{cid}` did not make a feature")))?;
     if let (FeatureKind::Emboss { face: Some(before), .. }, FeatureKind::Emboss { face: Some(after), .. }) = (&old.kind, &mut new.kind)
@@ -2256,6 +2308,7 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
     {
         after.to_body_apart = before.to_body_apart;
     }
+    keep_from_level_on_the_same_face(s, &old, &mut new);
     // A boundary surface's loop of sketch curves and its curve network are one command's two
     // forms: an edit may turn one into the other.
     let boundary = |k: &FeatureKind| matches!(k, FeatureKind::SurfaceBoundary { .. } | FeatureKind::SurfaceNetwork { .. });
@@ -2436,7 +2489,7 @@ fn redefine(s: &mut Session, p: &Value) -> Result<Value> {
         slot.edge_names = new.edge_names;
         slot.face_names = new.face_names;
         slot.param_names = param_names;
-        if params.get("participants").is_some() {
+        if params.get("participants").is_some() || targets_are_participants {
             slot.participants = new.participants;
         }
     }
