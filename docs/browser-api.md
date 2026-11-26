@@ -80,44 +80,116 @@ design files keeps those links as paths; the files themselves are not in `text`.
 ## Upstream source and remaining differences
 
 This fork integrates upstream `main` at commit
-[`e4811010f558ebaaf2bfdc7de497bfc4d1fea8ef`](https://github.com/tangency-labs/solidcraft/commit/e4811010f558ebaaf2bfdc7de497bfc4d1fea8ef),
-retrieved on 2026-11-21. This preserves the fork's policy of tracking upstream commits.
+[`71df0776d10b0f14382f230d25d64225125607f4`](https://github.com/tangency-labs/solidcraft/commit/71df0776d10b0f14382f230d25d64225125607f4),
+retrieved on 2026-11-26. This preserves the fork's policy of tracking upstream commits.
 The latest stable release on that date is
-[v0.45.0](https://github.com/tangency-labs/solidcraft/releases/tag/v0.45.0), commit
-`e8ce12ef78fe76281a04b7242a9ce059ff7d5067` (`v0.45.0-nightly.20261121.151.1` is a prerelease);
-the selected `main` commit includes later, unreleased changes (workspace version `0.46.0`).
+[v0.50.0](https://github.com/tangency-labs/solidcraft/releases/tag/v0.50.0), commit
+`eeb366c2ff276987a15c043d63b9072b58274703` (workspace version `0.50.0`);
+the selected `main` commit includes later, unreleased changes beyond `v0.50.0`.
 Upstream supplies `?embed=editor` and `document.export`, `document.import` and `document.saved`.
-Those [document handlers](https://github.com/tangency-labs/solidcraft/blob/e4811010f558ebaaf2bfdc7de497bfc4d1fea8ef/crates/ui-egui/src/documents.rs)
+Those [document handlers](https://github.com/tangency-labs/solidcraft/blob/71df0776d10b0f14382f230d25d64225125607f4/crates/ui-egui/src/documents.rs)
 exchange native design JSON; they do not transfer the bytes of STEP imports or exports.
 
 | Fork difference | Required behavior | Selected upstream evidence | Action |
 |---|---|---|---|
 | [`apps/solidcraft-web/src/api.rs`](../apps/solidcraft-web/src/api.rs) | Transfer native and exchange-format bytes through memory paths, including arrays from an embedding window | Upstream exports command methods but no byte-transfer methods | Keep `readFile` and `writeFile` unchanged |
-| [`crates/ui-kit/src/window_chrome.rs`](../crates/ui-kit/src/window_chrome.rs) | Keep a held mouse button when focus moves between the canvas and a text input | Native focus recovery also runs on WebAssembly and releases the held button | Read `WindowFocused` events only on native targets; keep explicit picker cleanup and lost-press recovery |
+| [`crates/ui-kit/src/window_chrome.rs`](../crates/ui-kit/src/window_chrome.rs) | Keep a held mouse button when focus moves between the canvas and a text input | Upstream commit `0c5c824e7b` preserves tracked buttons across page-element focus changes (`release_stale_input_with_tracked_buttons`), and unchanged `web-api-test` passes | Dropped fork patch; file now matches upstream `71df0776d1` |
 | [`xtask/src/web_offline_test.rs`](../xtask/src/web_offline_test.rs) | Check STEP transfer, reopening and invalid requests in the real browser app | Upstream covers native JSON exchange without the host byte bridge | Keep the existing tests unchanged |
 | This document | Record the API contract, selected source and qualification limits | Upstream does not document the fork's byte bridge | Keep and update the evidence |
 
-Upstream's [browser API](https://github.com/tangency-labs/solidcraft/blob/e4811010f558ebaaf2bfdc7de497bfc4d1fea8ef/apps/solidcraft-web/src/api.rs)
+Upstream's [browser API](https://github.com/tangency-labs/solidcraft/blob/71df0776d10b0f14382f230d25d64225125607f4/apps/solidcraft-web/src/api.rs)
 does not expose the byte bridge. Remove it when a supported upstream API transfers exchange-format
 file bytes, embedding hosts use that API, and the browser test demonstrates exported bytes,
 arrays from another window, reopening the transferred file and rejection of invalid requests.
-Remove the focus correction when upstream's unchanged browser gate preserves held buttons
-across page-element focus changes while still releasing them on actual window blur.
 
 ### Native design compatibility
 
-At this revision, newly saved native designs use `solidcraft/64`: `crates/doc/src/format/`
-includes folded formats through `v64` and no pending `.rs` changes.
-[`Formats::current`](https://github.com/tangency-labs/solidcraft/blob/e4811010f558ebaaf2bfdc7de497bfc4d1fea8ef/crates/format/src/lib.rs)
-therefore returns 64. `document.export`'s outer `format: "json"` describes the encoding;
+At this revision, newly saved native designs use `solidcraft/70`: `crates/doc/src/format/`
+includes folded formats through `v69` plus 16 pending `.rs` changes in `crates/doc/src/format/pending/`.
+[`Formats::current`](https://github.com/tangency-labs/solidcraft/blob/71df0776d10b0f14382f230d25d64225125607f4/crates/format/src/lib.rs)
+therefore writes `solidcraft/70`. `document.export`'s outer `format: "json"` describes the encoding;
 the design's own format number is inside `text`.
 
-The previous published `host-files-2` revision, `9d55e7894d6862e45d9fef99db001ef0107c4404`, writes
-`solidcraft/48` and rejects higher format numbers. Keep the original native files when
-qualifying an upgrade: restoring that executable alone cannot reopen a design saved in format
-64. The newer-file preservation code in v0.42.0+ does not change the older format-48 reader.
+The previous published `host-files-3` revision, `7e66eb4006b04f9d463bc8631ac2f7f9b93e0320`, writes
+`solidcraft/64` and includes upstream's v0.42.0+ newer-file preservation reader. In browser
+checks, `host-files-3` opened a synthetic format-70 box `.sc` file cleanly with identical measured
+geometry (`1,000 mm³`), and the new build opened `host-files-3`'s format-64 `.sc` file cleanly.
+Keep the original native files when qualifying an upgrade, however, because designs using new
+format 65–70 features remain subject to newer-file preservation limits on rollback. Older
+pre-v0.42.0 builds such as `host-files-2` (`solidcraft/48`) reject higher format numbers outright.
 
 ### Qualification of the selected main revision
+
+On 2026-11-26, on source merge `545320c78005d4097d83fe137d6a0b8b3da867fd` (whose diff from
+unmodified upstream `71df0776d10b0f14382f230d25d64225125607f4` is strictly
+`apps/solidcraft-web/src/api.rs`, `xtask/src/web_offline_test.rs` and this document), static,
+compile and unit checks ran with the host's `rustc 1.102.0-nightly (6c709eb42 2026-11-25)`:
+
+- `cargo fmt -p solidcraft-web -p xtask -- --check` passed (the workspace-wide `cargo xtask fmt --check`
+  flagged only two unmodified upstream `solidcore` files under nightly rustfmt).
+- `cargo xtask assets`, `icons`, `licences --check`, `lists`, `skills`, `layers` and `wasm`
+  (35 crates) all passed.
+- `cargo clippy --no-deps -p solidcraft-web --all-targets -- -D warnings`,
+  `cargo clippy --no-deps -p solidcraft-web --target wasm32-unknown-unknown -- -D warnings -A clippy::large_unopt_stack_frames`,
+  `cargo clippy --no-deps -p xtask --bins -- -D warnings` and
+  `cargo clippy --no-deps -p solidcraft-ui-kit --lib -- -D warnings -A recursion-depth-exceeding-limit`
+  passed with zero warnings in fork-modified files (nightly 1.102 raises new lints only in
+  unchanged upstream files such as `xtask/src/skills.rs`, `crates/viewport-gpu/src/capture.rs`,
+  `crates/dynamics/src/math.rs`, `crates/render/src/curve_display.rs` and `apps/solidcraft-web/src/main.rs`).
+- `cargo test -p solidcraft-web` passed all 70 tests; `cargo test --release -p solidcraft-ui-kit --lib window_chrome::tests::`
+  passed all 26 tests (including `a_focus_move_inside_the_page_keeps_a_tracked_button_held`;
+  in dev profile, unmodified upstream `solidcraft-ui-kit` hits 4 `Dropped TexturesDelta` debug
+  assertions out of 587 tests, and `xtask`'s `the_workspace_has_no_new_app_geometry` diffs against
+  the fork's older `origin/main` while the other 218 `xtask` tests pass). Full workspace native CI
+  (`cargo xtask ci`) was not re-run under nightly 1.102 because of those unchanged-upstream nightly
+  lints.
+
+`packaging/web/package.sh` built the release browser package from committed source
+`545320c78005d4097d83fe137d6a0b8b3da867fd` with `rustc 1.102.0-nightly (6c709eb42 2026-11-25)`,
+Trunk 0.22.2 and wasm-bindgen 0.2.129 (removing Trunk 0.22's leftover `.trunk-lock`, running
+`cargo xtask web-offline dist/web`, and re-packing with `--skip-build`). The resulting
+`solidcraft-web-0.50.0.zip` (90 MB) has SHA-256
+`8cd5bf6e8a5ceb8d9180c8284c03cd13d32941095c224a3f7c5d6eddd9436b80`, service-worker version
+`0.50.0-8cf0bfda47e71a3e` (10 files), and serves `solidcraft-web-3e06f855d6b96ce4_bg.wasm`
+(217,242,381 bytes, SHA-256 `5e8093220c4250c14668701b47257c5b3fe74e50b8651a55f1473af34e7887a2`).
+
+All three browser gates passed against `dist/web` in headless Chrome 158:
+
+- `cargo xtask web-offline-test --site dist/web` passed all 20 scenarios.
+- `cargo xtask web-api-test --smoke --site dist/web` passed in 9.2 s (saved 30 × 20 × 10 mm box,
+  6,000 mm³, and three token-correlated model frames).
+- `cargo xtask web-api-test --site dist/web` passed end-to-end: mouse buttons and in-page focus
+  recovery (confirming upstream `0c5c824e7b` supersedes our dropped `window_chrome.rs` patch),
+  command discovery, undo/redo, error/queue limits, DXF export and dialog download, concurrent OPFS
+  save, linked-design tab opening, `readFile`/`writeFile` STEP transfer and refusals, Ctrl+Tab
+  handling, and M2 plate drawing creation, export and reopen.
+
+Separate headless Chrome checks against the extracted `solidcraft-web-0.50.0.zip` archive in
+`?embed=editor` under a CSP blocking external connections (zero external requests, zero console or
+page errors, zero 404s) passed:
+
+- `ui.prefs { theme_import }` with a `solidcraft-theme/1` host theme.
+- A 20 × 10 × 5 mm box (1,000 mm³, 700 mm²), undo/redo, native `document.export` (`solidcraft/70`),
+  revision tracking, stale `document.saved` rejection, invalid `document.import` rejection
+  preserving both open bodies, and dirty-flag clearing on current revision acknowledgement.
+- Native `.sc` (10,853 bytes) and STEP (9,605 bytes, `ISO-10303-21;`) round trips via `readFile`
+  and cross-window `Uint8Array.subarray` with non-zero `byteOffset` in `writeFile`, reopening with
+  identical measured geometry (`1,000 mm³`, `700 mm²`).
+- Refusals for missing files, `/downloads/`, `/opfs/`, `/disk/<handle>/<name>` and non-`Uint8Array`
+  arguments, plus disposal unloading the iframe and rejecting subsequent calls.
+- Compatibility with published `host-files-3`: the new bundle opens `host-files-3`'s format-64
+  `.sc` and STEP files with identical measured geometry (`1,000 mm³`), and `host-files-3` opens
+  both the new bundle's STEP file and the synthetic format-70 box `.sc` file with identical
+  measured geometry (`1,000 mm³`, `dirty: false`).
+
+These synthetic checks do not qualify a consuming application's authenticated storage or
+permissions.
+
+### Previous qualification on the 2026-11-21 main revision
+
+The following results apply to upstream `e4811010f558ebaaf2bfdc7de497bfc4d1fea8ef`
+(native format `solidcraft/64`, published as `host-files-3`) and do not qualify the newer source
+above.
 
 On 2026-11-21, `cargo xtask ci` with Rust 1.99.1 on source merge
 `7e66eb4006b04f9d463bc8631ac2f7f9b93e0320` passed formatting (263 files), render assets,
